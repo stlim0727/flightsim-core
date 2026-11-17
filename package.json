@@ -1,6 +1,6 @@
 {
   "name": "@stlim0727/flightsim-core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Headless 6-DOF flight physics, control laws, autopilot and warning state machines",
   "type": "module",
   "license": "MIT",

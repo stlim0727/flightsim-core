@@ -7,6 +7,7 @@ export * from './physics/Aerodynamics.js';
 export * from './physics/Atmosphere.js';
 export * from './physics/EngineModel.js';
 export * from './physics/LandingGear.js';
+export * from './physics/WaterDitching.js';
 export * from './physics/MassProperties.js';
 export * from './physics/TrimSolver.js';
 export * from './config/aircraftConfigs.js';
