@@ -1,0 +1,67 @@
+{
+  "name": "@stlim0727/flightsim-core",
+  "version": "0.1.0",
+  "description": "Headless 6-DOF flight physics, control laws, autopilot and warning state machines",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stlim0727/flightsim-core.git"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.js",
+    "./config/aircraftConfigs.js": "./src/config/aircraftConfigs.js",
+    "./config/massDistributions.js": "./src/config/massDistributions.js",
+    "./controls/FlightControlLaws.js": "./src/controls/FlightControlLaws.js",
+    "./controls/gyroOrientation.js": "./src/controls/gyroOrientation.js",
+    "./physics/Aerodynamics.js": "./src/physics/Aerodynamics.js",
+    "./physics/Atmosphere.js": "./src/physics/Atmosphere.js",
+    "./physics/Autopilot.js": "./src/physics/Autopilot.js",
+    "./physics/EngineModel.js": "./src/physics/EngineModel.js",
+    "./physics/FlightPhysicsCore.js": "./src/physics/FlightPhysicsCore.js",
+    "./physics/LandingGear.js": "./src/physics/LandingGear.js",
+    "./physics/MassProperties.js": "./src/physics/MassProperties.js",
+    "./physics/PilotPhysiology.js": "./src/physics/PilotPhysiology.js",
+    "./physics/TakeoffPerformance.js": "./src/physics/TakeoffPerformance.js",
+    "./physics/TrimSolver.js": "./src/physics/TrimSolver.js",
+    "./physics/WaterDitching.js": "./src/physics/WaterDitching.js",
+    "./physics/bodyContactConstraint.js": "./src/physics/bodyContactConstraint.js",
+    "./physics/bodyDamage.js": "./src/physics/bodyDamage.js",
+    "./physics/combatDamage.js": "./src/physics/combatDamage.js",
+    "./physics/contactCompliance.js": "./src/physics/contactCompliance.js",
+    "./physics/gLimiter.js": "./src/physics/gLimiter.js",
+    "./physics/gearDamage.js": "./src/physics/gearDamage.js",
+    "./physics/groundContacts.js": "./src/physics/groundContacts.js",
+    "./physics/loadFactor.js": "./src/physics/loadFactor.js",
+    "./physics/longitudinalForces.js": "./src/physics/longitudinalForces.js",
+    "./physics/massKinematics.js": "./src/physics/massKinematics.js",
+    "./physics/stallSpeedEstimate.js": "./src/physics/stallSpeedEstimate.js",
+    "./physics/trimWheel.js": "./src/physics/trimWheel.js",
+    "./systems/FlightWarningsCore.js": "./src/systems/FlightWarningsCore.js",
+    "./navigation/approachDeviation.js": "./src/navigation/approachDeviation.js"
+  },
+  "files": [
+    "src/",
+    "README.md",
+    "LICENSE",
+    "NOTICE.md"
+  ],
+  "scripts": {
+    "check": "node scripts/check.mjs",
+    "test": "node --test tests/*.test.js",
+    "test:package": "node scripts/verify-package.mjs"
+  },
+  "peerDependencies": {
+    "three": "^0.186.0"
+  },
+  "devDependencies": {
+    "three": "0.186.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
