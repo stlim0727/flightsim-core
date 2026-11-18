@@ -191,6 +191,7 @@ export class LandingGear {
   }
 
   resetDamage() {
+    this.overspeedDamage = 0;
     this.failure = null;
     this.maxImpactSpeed = 0;
     this.lastMomentBody.set(0, 0, 0);
@@ -266,10 +267,13 @@ export class LandingGear {
       this.targetGearState = 1.0;
       this.gearState = 1.0;
       this.isTransit = false;
+    } else if (this.overspeedDamage >= 1) {
+      this.isTransit = false;
     } else if (Math.abs(this.targetGearState - this.gearState) > 0.001) {
       this.isTransit = true;
-      const step = Math.sign(this.targetGearState - this.gearState) * this.gearTransitSpeed * dt;
-      this.gearState = Math.max(0.0, Math.min(1.0, this.gearState + step));
+      const remaining = this.targetGearState - this.gearState;
+      const travel = this.gearTransitSpeed * (1 - (this.overspeedDamage ?? 0)) * dt;
+      this.gearState += Math.sign(remaining) * Math.min(Math.abs(remaining), travel);
     } else {
       this.isTransit = false;
       this.gearState = this.targetGearState;
@@ -437,6 +441,7 @@ export class LandingGear {
           dynamicLongitudinalLoad += limits.longitudinal * 0.5 * shockRatio;
         }
 
+        const locked = gearDeploy >= 0.99 && this.targetGearState === 1 && !(this.overspeedDamage >= 1);
         const stateBefore = c.damageState;
         updateGearDamage(c, {
           sinkRate,
@@ -445,11 +450,11 @@ export class LandingGear {
           lateralLoad: dynamicLateralLoad,
           longitudinalLoad: dynamicLongitudinalLoad,
           overtravel: Math.max(0, normalPenetration - c.restLength),
-          locked: gearDeploy >= 0.99 && this.targetGearState === 1,
+          locked,
         }, dt, limits);
         if (stateBefore !== c.damageState) {
           this.failure ??= { contact: c.id, sinkRate, penetration,
-            reason: sinkRate > limits.impact ? 'impact' : normalPenetration > c.restLength + 0.08 ? 'bottom-out' : c.turfEngagement > 0.5 ? 'excursion' : gearDeploy < 0.99 || this.targetGearState !== 1 ? 'unlocked' : 'overload' };
+            reason: sinkRate > limits.impact ? 'impact' : normalPenetration > c.restLength + 0.08 ? 'bottom-out' : c.turfEngagement > 0.5 ? 'excursion' : !locked ? 'unlocked' : 'overload' };
           damageEvents.push({ id: c.id, state: c.damageState, damage: c.damage });
         }
         if (c.damageState === 'collapsed') {

@@ -82,6 +82,8 @@ export class FlightWarningsCore {
       const overspeed = this.active.has('overspeed');
       if (s.iasKnots > p.vne - (overspeed ? 5 : 0) || s.mach > (p.mach ?? Infinity) - (overspeed ? 0.01 : 0))
         add('overspeed', 'OVERSPEED', 85, this.id === 'F16' ? 'Limit' : null);
+      if (s.configurationOverspeed?.flap) add('flap-overspeed', 'FLAP OVERSPEED', 84, null);
+      if (s.configurationOverspeed?.gear) add('gear-overspeed', 'GEAR OVERSPEED', 84, null);
       if (Math.abs(s.rollDeg) > p.bank + (validHeight && ra > 1000 ? 10 : 0))
         add('bank', 'BANK ANGLE', 50, this.id === 'B738' ? 'Bank angle, bank angle' : null);
       if (s.engine1?.failed || this.numEngines > 1 && s.engine2?.failed) add('engine', 'ENGINE FAILURE', 70, this.id === 'F16' ? 'Engine' : null);
