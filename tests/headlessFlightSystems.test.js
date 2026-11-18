@@ -37,6 +37,21 @@ test('q-feel, deadzone, precision curve and aircraft flap bounds are explicit', 
   assert.equal(laws.flapsIndex, 1);
 });
 
+test('F16 fighter flight control laws provide high-rate actuator response', () => {
+  const f16Laws = new FlightControlLaws();
+  const b738Laws = new FlightControlLaws();
+  // Command full roll right, pitch up, and yaw right for 0.1 seconds
+  const f16Out = f16Laws.update({ pitch: 1.0, roll: 1.0, yaw: 1.0 }, 0.1, 140, 'F16');
+  const b738Out = b738Laws.update({ pitch: 1.0, roll: 1.0, yaw: 1.0 }, 0.1, 140, 'B738');
+  // F-16 aileron slews at 4.0/s -> 0.40 after 0.1s; B738 slews at 0.85/s -> 0.085 after 0.1s
+  assert.ok(Math.abs(f16Out.aileron - 0.40) < 1e-12);
+  assert.ok(Math.abs(b738Out.aileron - 0.085) < 1e-12);
+  assert.ok(Math.abs(f16Out.elevator - 0.30) < 1e-12);
+  assert.ok(Math.abs(b738Out.elevator - 0.055) < 1e-12);
+  assert.ok(Math.abs(f16Out.rudder - 0.25) < 1e-12);
+  assert.ok(Math.abs(b738Out.rudder - 0.060) < 1e-12);
+});
+
 test('warning state retains hysteresis, emits single crossing callouts and resets', () => {
   const laws = new FlightWarningsCore();
   const s = { onGround: false, radioAltFt: 600, altitudeFt: 600, vsiFpm: -600,
