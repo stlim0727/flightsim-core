@@ -190,9 +190,11 @@ export class FlightControlLaws {
     // Heavy airliner actuator response & hydraulic control feel:
     // A 66-ton aircraft's control surfaces cannot snap instantaneously.
     // Realistic slew rate limits: Elevator ~0.55/s (2.0s for full travel), Aileron ~0.85/s, Rudder ~0.60/s
-    const maxElevatorRate = 0.55; // units per second
-    const maxAileronRate = 0.85;
-    const maxRudderRate = 0.60;
+    // High-performance fighter aircraft (F-16) flaperons operate at 80-100 deg/s for fast roll response
+    const isFighter = aircraftId === 'F16';
+    const maxElevatorRate = 0.55; // units per second (calibrated with G-limiter pitch anticipation)
+    const maxAileronRate = isFighter ? 4.0 : 0.85;
+    const maxRudderRate = isFighter ? 2.5 : 0.60;
 
     const elevDelta = targetElevator - this.elevator;
     const aileronDelta = targetAileron - this.aileron;
