@@ -1,3 +1,4 @@
+import { advanceConfigurationOverspeed } from './configurationOverspeed.js';
 import * as THREE from 'three';
 import { Aerodynamics, createAeroResult } from './Aerodynamics.js';
 import { Atmosphere } from './Atmosphere.js';
@@ -162,6 +163,10 @@ export class FlightPhysicsCore {
     this.waterDitching?.reset?.();
     this.pilotPhysiology?.reset?.();
     this.gForceFilter?.reset?.();
+    this.aero.resetFlapDamage?.();
+    this.gear.overspeedDamage = 0;
+    this.telemetry.configurationOverspeed = undefined;
+    this.telemetry.configurationDamage = undefined;
   }
 
   /**
@@ -357,6 +362,10 @@ export class FlightPhysicsCore {
 
     this._cgBefore.copy(this.aero.cg);
     this.engines.bindMassProperties(this.aero.massProperties);
+    const configurationOverspeed = this.config.configurationLimits && advanceConfigurationOverspeed(
+      this.aero, this.gear, this.config.configurationLimits,
+      Atmosphere.msToKnots(tas * Math.sqrt(atmos.densityRatio)), dt
+    );
     this.gear.advanceConfiguration(dt);
     this.aero.advanceFlaps(dt);
     const engineData = this.engines.update(dt, altitudeMeters, tas, atmos.densityRatio);
@@ -670,6 +679,12 @@ export class FlightPhysicsCore {
       structuralDamage: gearResult.structuralDamage,
       groundRoughness,
       bodyDamage: gearResult.bodyDamage,
+      configurationOverspeed,
+      configurationDamage: {
+        flapLeft: this.aero.leftFlapDamage ?? 0,
+        flapRight: this.aero.rightFlapDamage ?? 0,
+        gear: this.gear.overspeedDamage ?? 0,
+      },
       flapDegree: this.aero.currentFlapAngle,
       flapIndex: this.aero.flapsIndex,
       spoilers: this.aero.spoilers,

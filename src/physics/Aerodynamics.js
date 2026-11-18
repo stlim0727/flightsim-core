@@ -145,11 +145,25 @@ export class Aerodynamics {
     }
     this.flapsIndex = Math.max(0, Math.min(this.flapAngles.length - 1, this.flapsIndex ?? 0));
     this.currentFlapAngle = this.flapAngles[this.flapsIndex];
+    this.resetFlapDamage();
+  }
+
+  resetFlapDamage() {
+    this.flapAngleOffset = 0;
+    this.leftFlapDamage = 0;
+    this.rightFlapDamage = 0;
   }
 
   advanceFlaps(dt) {
     const target = this.flapAngles[this.flapsIndex];
-    this.currentFlapAngle += (target - this.currentFlapAngle) * Math.min(1, dt * 0.4);
+    const travel = Math.min(1, dt * 0.4);
+    const offset = this.flapAngleOffset ?? 0;
+    const left = this.currentFlapAngle - offset;
+    const right = this.currentFlapAngle + offset;
+    const nextLeft = left + (target - left) * travel * (1 - (this.leftFlapDamage ?? 0));
+    const nextRight = right + (target - right) * travel * (1 - (this.rightFlapDamage ?? 0));
+    this.currentFlapAngle = (nextLeft + nextRight) * 0.5;
+    this.flapAngleOffset = (nextRight - nextLeft) * 0.5;
   }
 
   syncMassProperties() {
@@ -319,7 +333,8 @@ export class Aerodynamics {
     // Parasitic drag
     let cdParasitic = this.CD0;
     // Flap drag
-    cdParasitic += 0.0012 * this.currentFlapAngle + 0.000045 * (this.currentFlapAngle * this.currentFlapAngle);
+    cdParasitic += 0.0012 * this.currentFlapAngle
+      + 0.000045 * (this.currentFlapAngle ** 2 + this.flapAngleOffset ** 2);
     // Landing gear drag
     cdParasitic += this.gearDrag * gearState;
     // Spoiler drag
@@ -410,8 +425,11 @@ export class Aerodynamics {
     // +Y (Yaw): negative rotation yaws nose RIGHT
     // +Z (Roll): negative rotation banks RIGHT
     const pitchMoment = qDyn * this.wingArea * this.meanChord * cm + thrustPitchMoment;
-    const rollAsymmetry = dmg ? dmg.rollAsymmetry * cl : 0;
-    const yawAsymmetry = dmg ? dmg.yawAsymmetry : 0;
+    // Apply the differential force at a representative flap arm of 20% span.
+    const rollAsymmetry = (dmg ? dmg.rollAsymmetry * cl : 0)
+      + 0.2 * (1 - W) * (1 - 0.28 * brk) * 0.95 * this.flapAngleOffset / 40;
+    const yawAsymmetry = (dmg ? dmg.yawAsymmetry : 0)
+      - 0.2 * this.flapAngleOffset * (0.0012 + 0.00009 * this.currentFlapAngle);
     const rollMoment = -(qDyn * this.wingArea * this.wingspan * cl_roll)
       + qDyn * this.wingArea * this.wingspan * rollAsymmetry;
     const yawMoment = qDyn * this.wingArea * this.wingspan * (cn + yawAsymmetry);

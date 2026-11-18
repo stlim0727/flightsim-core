@@ -20,7 +20,9 @@ import { C172_BODY_SUPPORT_POINTS } from '../physics/groundContacts.js';
  * @property {Object} [audio] - Engine sound profile and synthesized RPM tuning
  */
 
+// Simulator limits in indicated knots for the modeled flap detents and gear.
 export const BOEING_737_800 = {
+  configurationLimits: { flap: [0, 250, 250, 200, 195, 175, 162], gearOperating: 235, gearExtended: 320 },
   id: 'B738',
   massDistribution: B738_MASS_DISTRIBUTION,
   name: 'Boeing 737-800',
@@ -158,6 +160,7 @@ export const BOEING_737_800 = {
 };
 
 export const F16_FALCON = {
+  configurationLimits: { flap: [0, 250], gearOperating: 300, gearExtended: 300 },
   id: 'F16',
   flightControls: { gLimiter: true },
   massDistribution: F16_MASS_DISTRIBUTION,
@@ -298,6 +301,7 @@ export const F16_FALCON = {
 };
 
 export const CESSNA_172 = {
+  configurationLimits: { flap: [0, 110, 85, 85] },
   id: 'C172',
   massDistribution: C172_MASS_DISTRIBUTION,
   name: 'Cessna 172 Skyhawk',
@@ -438,6 +442,7 @@ export const CESSNA_172 = {
 };
 
 export const AIRBUS_A320 = {
+  configurationLimits: { flap: [0, 230, 200, 177], gearOperating: 250, gearExtended: 280 },
   id: 'A320',
   name: 'Airbus A320-200',
   description: 'Twin-engine narrow-body jet airliner with CFM56-5B high-bypass turbofans',
@@ -563,6 +568,7 @@ export const AIRBUS_A320 = {
 };
 
 export const BOEING_747_400 = {
+  configurationLimits: { flap: [0, 250, 205, 180], gearOperating: 235, gearExtended: 320 },
   id: 'B747',
   name: 'Boeing 747-400',
   description: 'Four-engine wide-body commercial airliner with GE CF6-80C2 high-bypass turbofans',
@@ -688,6 +694,7 @@ export const BOEING_747_400 = {
 };
 
 export const DC10_30 = {
+  configurationLimits: { flap: [0, 250, 205, 180], gearOperating: 235, gearExtended: 270 },
   id: 'DC10',
   name: 'McDonnell Douglas DC-10-30',
   description: 'Three-engine wide-body jet airliner with two underwing turbofans and one tail-mounted engine',
@@ -813,6 +820,7 @@ export const DC10_30 = {
 };
 
 export const MD82 = {
+  configurationLimits: { flap: [0, 240, 195, 180], gearOperating: 210, gearExtended: 250 },
   id: 'MD80',
   name: 'McDonnell Douglas MD-82',
   description: 'Twin-engine narrow-body airliner with aft fuselage-mounted JT8D turbofans and T-tail',
@@ -938,6 +946,7 @@ export const MD82 = {
 };
 
 export const CONCORDE = {
+  configurationLimits: { flap: [], gearOperating: 270, gearExtended: 270 },
   id: 'CONCORDE',
   name: 'Aérospatiale/BAC Concorde',
   description: 'Supersonic passenger airliner featuring ogival delta wing and four Rolls-Royce/Snecma Olympus 593 turbojets with reheat',
@@ -1063,6 +1072,7 @@ export const CONCORDE = {
 };
 
 export const CANADAIR_CL215 = {
+  configurationLimits: { flap: [0, 140, 120, 105] },
   id: 'CL215',
   name: 'Canadair CL-215 Amphibian',
   description: 'Twin-engine amphibious flying boat designed for aerial firefighting and water landings',
