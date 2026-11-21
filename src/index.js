@@ -12,3 +12,5 @@ export * from './physics/MassProperties.js';
 export * from './physics/TrimSolver.js';
 export * from './config/aircraftConfigs.js';
 export * from './navigation/approachDeviation.js';
+export * from './terrain/TerrainProvider.js';
+export * from './terrain/TerrariumElevationProvider.js';
