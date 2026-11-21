@@ -38,8 +38,10 @@ export function toNormalVector3(normal, Vector3Ctor = Vector3) {
 }
 
 function sampleReadyHeight(provider, x, z) {
-  if (!provider?.isReady?.(x, z)) return null;
+  if (!provider) return null;
+  const ready = Boolean(provider.isReady?.(x, z));
   const h = provider.getHeight?.(x, z);
+  if (!ready) return null;
   return Number.isFinite(h) ? h : null;
 }
 
@@ -123,8 +125,10 @@ export function createGroundSurfaceQueries(options = {}) {
     },
     getGroundNormal(x, z) {
       const provider = overrideGetter();
-      if (sampleReadyHeight(provider, x, z) !== null) {
+      const h = sampleReadyHeight(provider, x, z);
+      if (h !== null) {
         if (Number.isFinite(waterFloorHeight) && provider.isWater?.(x, z)) return null;
+        if (h < minHeight) return null;
         return toNormalVector3(provider.getNormal?.(x, z) ?? null, Vector3Ctor);
       }
       return toNormalVector3(fallbackNormal(x, z), Vector3Ctor);

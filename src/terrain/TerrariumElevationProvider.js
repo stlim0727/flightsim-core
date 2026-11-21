@@ -14,6 +14,7 @@ const TILE_SIZE = 256;
 const DEFAULT_ZOOM = 11;
 const D2R = Math.PI / 180;
 const DEFAULT_RETRY_MS = 5000;
+const MAX_MERCATOR_LAT = 85.05112878;
 
 /** Terrarium PNG RGBA -> Float32 heights (metres above MSL). */
 export function decodeTerrarium(rgba) {
@@ -27,8 +28,10 @@ export function decodeTerrarium(rgba) {
 /** WGS84 degrees -> Web Mercator fractional tile coordinates `{ fx, fy }`. */
 export function lonLatToTilePixel(lat, lon, zoom) {
   const n = 2 ** zoom;
-  const latRad = lat * D2R;
-  const fx = ((lon + 180) / 360) * n;
+  const wrappedLon = ((((lon + 180) % 360) + 360) % 360) - 180;
+  const clampedLat = Math.min(MAX_MERCATOR_LAT, Math.max(-MAX_MERCATOR_LAT, lat));
+  const latRad = clampedLat * D2R;
+  const fx = ((wrappedLon + 180) / 360) * n;
   const fy = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
   return { fx, fy };
 }
@@ -84,13 +87,21 @@ export function createTerrariumProvider(options) {
   }
 
   const frame = createAnchorFrame(anchor, simOffset);
-  const tiles = new Map(); // key -> Float32Array | 'pending' | 'failed'
-  const order = [];
+  const tilesAcross = 2 ** zoom;
+  const wrapX = tx => ((tx % tilesAcross) + tilesAcross) % tilesAcross;
+  const tiles = new Map(); // insertion order: LRU -> MRU; key -> Float32Array | 'pending' | 'failed'
   const failedAt = new Map(); // key -> ms
   let datumM = null;
   let disposed = false;
 
   const keyOf = (x, y) => `${zoom}/${x}/${y}`;
+
+  function touch(key) {
+    if (!tiles.has(key)) return;
+    const value = tiles.get(key);
+    tiles.delete(key);
+    tiles.set(key, value);
+  }
 
   function applyFlatZones(x, z, rawHeight) {
     if (!flatZones.length) return rawHeight;
@@ -116,23 +127,28 @@ export function createTerrariumProvider(options) {
 
   function request(tx, ty) {
     if (disposed) return 'disposed';
-    const key = keyOf(tx, ty);
+    const wy = Math.floor(ty);
+    if (wy < 0 || wy >= tilesAcross) return 'out-of-bounds';
+    const wx = wrapX(Math.floor(tx));
+    const key = keyOf(wx, wy);
     if (tiles.has(key)) {
       const state = tiles.get(key);
-      if (state !== 'failed' || now() - (failedAt.get(key) || 0) < retryMs) return state;
+      if (state !== 'failed') {
+        touch(key);
+        return state;
+      }
+      if (now() - (failedAt.get(key) || 0) < retryMs) return state;
       tiles.delete(key);
-      const at = order.indexOf(key);
-      if (at >= 0) order.splice(at, 1);
+      failedAt.delete(key);
     }
     tiles.set(key, 'pending');
-    order.push(key);
-    while (order.length > maxTiles) {
-      const evicted = order.shift();
+    while (tiles.size > maxTiles) {
+      const evicted = tiles.keys().next().value;
       tiles.delete(evicted);
       failedAt.delete(evicted);
     }
     Promise.resolve()
-      .then(() => loadTile(zoom, tx, ty))
+      .then(() => loadTile(zoom, wx, wy))
       .then(rgba => {
         if (disposed || !tiles.has(key)) return;
         tiles.set(key, decodeTerrarium(rgba));
@@ -146,9 +162,7 @@ export function createTerrariumProvider(options) {
     return 'pending';
   }
 
-  function pixel(tx, ty, px, py) {
-    const data = tiles.get(keyOf(tx, ty));
-    if (!(data instanceof Float32Array)) return null;
+  function pixel(data, px, py) {
     const cx = Math.min(TILE_SIZE - 1, Math.max(0, px));
     const cy = Math.min(TILE_SIZE - 1, Math.max(0, py));
     return data[cy * TILE_SIZE + cx];
@@ -160,26 +174,30 @@ export function createTerrariumProvider(options) {
     const { fx, fy } = lonLatToTilePixel(lat, lon, zoom);
     const gx = (fx - Math.floor(fx)) * TILE_SIZE - 0.5;
     const gy = (fy - Math.floor(fy)) * TILE_SIZE - 0.5;
-    const tx = Math.floor(fx);
+    const tx = wrapX(Math.floor(fx));
     const ty = Math.floor(fy);
+    if (ty < 0 || ty >= tilesAcross) return null;
     if (fetchMissing) request(tx, ty);
+    const key = keyOf(tx, ty);
+    const data = tiles.get(key);
+    if (!(data instanceof Float32Array)) return null;
+    touch(key);
     const x0 = Math.floor(gx);
     const y0 = Math.floor(gy);
     const wx = gx - x0;
     const wy = gy - y0;
     // Neighbouring-tile samples at the seam are clamped to this tile's edge;
     // the error is below one pixel (~60 m) of lateral position.
-    const h00 = pixel(tx, ty, x0, y0);
-    const h10 = pixel(tx, ty, x0 + 1, y0);
-    const h01 = pixel(tx, ty, x0, y0 + 1);
-    const h11 = pixel(tx, ty, x0 + 1, y0 + 1);
-    if (h00 === null || h10 === null || h01 === null || h11 === null) return null;
+    const h00 = pixel(data, x0, y0);
+    const h10 = pixel(data, x0 + 1, y0);
+    const h01 = pixel(data, x0, y0 + 1);
+    const h11 = pixel(data, x0 + 1, y0 + 1);
     return (h00 * (1 - wx) + h10 * wx) * (1 - wy) + (h01 * (1 - wx) + h11 * wx) * wy;
   }
 
-  function ensureDatum() {
+  function ensureDatum(fetchMissing = true) {
     if (datumM !== null) return true;
-    const h = sampleMsl(simOffset.x, simOffset.z, true);
+    const h = sampleMsl(simOffset.x, simOffset.z, fetchMissing);
     if (h === null) return false;
     datumM = h;
     return true;
@@ -192,14 +210,14 @@ export function createTerrariumProvider(options) {
     getHeight(x, z) {
       // Always request the tile for (x, z), even while the datum tile is still loading.
       const h = sampleMsl(x, z, true);
-      if (!ensureDatum()) return null;
+      if (!ensureDatum(true)) return null;
       return h === null ? null : applyFlatZones(x, z, h - datumM);
     },
     isReady(x, z) {
-      return ensureDatum() && sampleMsl(x, z, false) !== null;
+      return ensureDatum(false) && sampleMsl(x, z, false) !== null;
     },
     isWater(x, z) {
-      if (!ensureDatum()) return false;
+      if (!ensureDatum(false)) return false;
       for (let i = 0; i < flatZones.length; i++) {
         if (zoneDistance(x, z, flatZones[i]) === 0) return false;
       }
@@ -221,7 +239,7 @@ export function createTerrariumProvider(options) {
     },
     update(position) {
       if (!position) return;
-      ensureDatum();
+      ensureDatum(true);
       const { lat, lon } = frame.toWgs84(position.x, position.z);
       const { fx, fy } = lonLatToTilePixel(lat, lon, zoom);
       const cx = Math.floor(fx);
@@ -234,7 +252,6 @@ export function createTerrariumProvider(options) {
       disposed = true;
       tiles.clear();
       failedAt.clear();
-      order.length = 0;
     },
   };
   return provider;

@@ -260,7 +260,13 @@ test('createGroundSurfaceQueries supports flight3d and hajun3d options, Vector3 
 
   provider = { isReady: () => true, isWater: () => false, getHeight: () => -80, getNormal: () => plainSlope };
   assert.equal(h3dQueries.getGroundHeight(0, 0), -48); // minHeight clamp
+  assert.equal(h3dQueries.getGroundNormal(0, 0), null); // clamped flat floor must not keep terrain slope
   assert.equal(h3dQueries.isWater(0, 0), false);
+
+  provider = { isReady: () => true, isWater: () => false, getHeight: () => -20, getNormal: () => plainSlope };
+  assert.equal(h3dQueries.getGroundHeight(0, 0), -20);
+  assert.equal(h3dQueries.getGroundNormal(0, 0).isVector3, true);
+  assert.ok(Math.abs(h3dQueries.getGroundNormal(0, 0).x - plainSlope.x) < 1e-9);
 
   // Explicit null Vector3Ctor returns plain object
   assert.deepEqual(toNormalVector3({ x: 0, y: 1, z: 0 }, null), { x: 0, y: 1, z: 0 });
@@ -304,4 +310,115 @@ test('LandingGear uses sloped override Vector3 normal from createGroundSurfaceQu
   const bodyResult = bodyGear.update(1 / 120, pose(0.5), new Vector3(65, 0, 0), new Vector3(), getGroundHeight, getGroundNormal);
   assert.equal(bodyResult.onGround, true);
   assert.ok(bodyResult.bodyContacts.length > 0);
+});
+
+test('createGroundSurfaceQueries returns null normal when minHeight clamps sloped terrain', () => {
+  const slope = { x: -0.2, y: 0.9797959, z: 0 };
+  const { getGroundHeight, getGroundNormal } = createGroundSurfaceQueries({
+    getProvider: () => ({
+      isReady: () => true,
+      getHeight: x => (x < 0 ? -80 : -10),
+      getNormal: () => slope,
+    }),
+    getFallbackHeight: () => 0,
+    minHeight: -48,
+  });
+
+  assert.equal(getGroundHeight(-100, 0), -48);
+  assert.equal(getGroundNormal(-100, 0), null);
+  assert.equal(getGroundHeight(100, 0), -10);
+  const unClamped = getGroundNormal(100, 0);
+  assert.equal(unClamped.isVector3, true);
+  assert.ok(Math.abs(unClamped.x - slope.x) < 1e-9);
+});
+
+test('createTerrariumProvider refreshes LRU recency on getHeight and isReady before evicting', async () => {
+  const provider = createTerrariumProvider({
+    anchor: { lat: 35.1652, lon: 128.939, headingDeg: 0 },
+    maxTiles: 2,
+    loadTile: async (_z, tx) => flatTile(tx),
+  });
+
+  // Load A (x=0) and B (x=30km)
+  provider.getHeight(0, 0);
+  await settle();
+  provider.getHeight(30000, 0);
+  await settle();
+  assert.equal(provider.isReady(0, 0), true);
+  assert.equal(provider.isReady(30000, 0), true);
+
+  // Access A via getHeight -> moves A to MRU; loading C (x=60km) must evict B, not A
+  provider.getHeight(0, 0);
+  provider.getHeight(60000, 0);
+  await settle();
+  assert.equal(provider.isReady(0, 0), true);
+  assert.equal(provider.isReady(30000, 0), false);
+  assert.equal(provider.isReady(60000, 0), true);
+
+  // Refresh A via isReady alone -> moves A to MRU; loading B (x=30km) must evict C, not A
+  assert.equal(provider.isReady(0, 0), true);
+  provider.getHeight(30000, 0);
+  await settle();
+  assert.equal(provider.isReady(0, 0), true);
+  assert.equal(provider.isReady(60000, 0), false);
+  assert.equal(provider.isReady(30000, 0), true);
+  provider.dispose();
+});
+
+test('createGroundSurfaceQueries and resolveGroundHeight trigger lazy Terrarium tile loading without update()', async () => {
+  const requested = [];
+  const provider = createTerrariumProvider({
+    anchor: ANCHOR,
+    loadTile: async (z, tx, ty) => {
+      requested.push(`${z}/${tx}/${ty}`);
+      return flatTile(tx === 1759 ? 310 : 250);
+    },
+  });
+  const surface = createGroundSurfaceQueries({
+    getProvider: () => provider,
+    getFallbackHeight: () => -45,
+  });
+  const resolved = resolveGroundHeight(() => provider, () => -45);
+
+  // Query 30 km east of anchor without ever calling provider.update() or provider.getHeight() directly
+  assert.equal(surface.getGroundHeight(30000, 0), -45);
+  assert.equal(resolved(30000, 0), -45);
+
+  await settle();
+  assert.ok(new Set(requested).size >= 2);
+  assert.equal(provider.isReady(30000, 0), true);
+  assert.ok(Math.abs(surface.getGroundHeight(30000, 0) - 60) < 0.01);
+  assert.ok(Math.abs(resolved(30000, 0) - 60) < 0.01);
+  provider.dispose();
+});
+
+test('lonLatToTilePixel and createTerrariumProvider wrap tile columns across the antimeridian', async () => {
+  const wrapped = lonLatToTilePixel(0, 180.02, 11);
+  assert.ok(wrapped.fx >= 0 && wrapped.fx < 1, `Expected fx in [0, 1), got ${wrapped.fx}`);
+
+  const requestedX = [];
+  const provider = createTerrariumProvider({
+    anchor: { lat: 0, lon: 179.99, headingDeg: 0 },
+    prefetchRadius: 1,
+    loadTile: async (_z, tx) => {
+      requestedX.push(tx);
+      return flatTile(tx === 0 ? 40 : 10);
+    },
+  });
+
+  // 3 km east crosses +180° and must request column 0 rather than out-of-range 2048
+  provider.getHeight(3000, 0);
+  await settle();
+  assert.ok(requestedX.includes(0));
+  assert.ok(!requestedX.some(tx => tx < 0 || tx >= 2048));
+  assert.equal(provider.isReady(3000, 0), true);
+  assert.ok(Math.abs(provider.getHeight(3000, 0) - 30) < 0.01);
+
+  provider.update({ x: 0, z: 0 });
+  await settle();
+  for (const expectedCol of [2046, 2047, 0]) {
+    assert.ok(requestedX.includes(expectedCol), `Expected wrapped prefetch column ${expectedCol}`);
+  }
+  assert.ok(!requestedX.some(tx => tx < 0 || tx >= 2048));
+  provider.dispose();
 });
