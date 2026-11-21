@@ -88,8 +88,14 @@ export function createTerrariumProvider(options) {
 
   const frame = createAnchorFrame(anchor, simOffset);
   const tilesAcross = 2 ** zoom;
+  const cacheLimit = Number.isFinite(maxTiles)
+    ? Math.max(1, Math.floor(maxTiles))
+    : maxTiles === Infinity
+      ? Infinity
+      : 24;
+  const radius = Number.isFinite(prefetchRadius) ? Math.max(0, Math.floor(prefetchRadius)) : 1;
   const wrapX = tx => ((tx % tilesAcross) + tilesAcross) % tilesAcross;
-  const tiles = new Map(); // insertion order: LRU -> MRU; key -> Float32Array | 'pending' | 'failed'
+  const tiles = new Map(); // insertion order: LRU -> MRU; key -> Float32Array | { pending: true } | 'failed'
   const failedAt = new Map(); // key -> ms
   let datumM = null;
   let disposed = false;
@@ -135,14 +141,15 @@ export function createTerrariumProvider(options) {
       const state = tiles.get(key);
       if (state !== 'failed') {
         touch(key);
-        return state;
+        return state instanceof Float32Array ? state : 'pending';
       }
       if (now() - (failedAt.get(key) || 0) < retryMs) return state;
       tiles.delete(key);
       failedAt.delete(key);
     }
-    tiles.set(key, 'pending');
-    while (tiles.size > maxTiles) {
+    const pending = { pending: true };
+    tiles.set(key, pending);
+    while (tiles.size > cacheLimit) {
       const evicted = tiles.keys().next().value;
       tiles.delete(evicted);
       failedAt.delete(evicted);
@@ -150,12 +157,12 @@ export function createTerrariumProvider(options) {
     Promise.resolve()
       .then(() => loadTile(zoom, wx, wy))
       .then(rgba => {
-        if (disposed || !tiles.has(key)) return;
+        if (disposed || tiles.get(key) !== pending) return;
         tiles.set(key, decodeTerrarium(rgba));
         failedAt.delete(key);
       })
       .catch(() => {
-        if (disposed || !tiles.has(key)) return;
+        if (disposed || tiles.get(key) !== pending) return;
         tiles.set(key, 'failed');
         failedAt.set(key, now());
       });
@@ -208,9 +215,16 @@ export function createTerrariumProvider(options) {
     zoom,
     visualRoot: null,
     getHeight(x, z) {
+      // Latch datum first if the anchor tile is already in cache so fetching
+      // (x, z) cannot evict an unread anchor tile under small maxTiles.
+      const hasDatum = ensureDatum(false);
+      if (!hasDatum && cacheLimit === 1) {
+        ensureDatum(true);
+        return null;
+      }
       // Always request the tile for (x, z), even while the datum tile is still loading.
       const h = sampleMsl(x, z, true);
-      if (!ensureDatum(true)) return null;
+      if (!hasDatum && !ensureDatum(true)) return null;
       return h === null ? null : applyFlatZones(x, z, h - datumM);
     },
     isReady(x, z) {
@@ -238,14 +252,62 @@ export function createTerrariumProvider(options) {
       return { x: nx / len, y: ny / len, z: nz / len };
     },
     update(position) {
-      if (!position) return;
-      ensureDatum(true);
+      if (!position || disposed) return;
+      const hasDatum = ensureDatum(false);
+      if (!hasDatum && cacheLimit === 1) {
+        ensureDatum(true);
+        return;
+      }
       const { lat, lon } = frame.toWgs84(position.x, position.z);
       const { fx, fy } = lonLatToTilePixel(lat, lon, zoom);
       const cx = Math.floor(fx);
       const cy = Math.floor(fy);
-      for (let dy = -prefetchRadius; dy <= prefetchRadius; dy++) {
-        for (let dx = -prefetchRadius; dx <= prefetchRadius; dx++) request(cx + dx, cy + dy);
+
+      // Deduplicate wrapped (wx, ny) keeping minimum squared distance to (cx, cy).
+      const byKey = new Map();
+      for (let dy = -radius; dy <= radius; dy++) {
+        const ny = cy + dy;
+        if (ny < 0 || ny >= tilesAcross) continue;
+        for (let dx = -radius; dx <= radius; dx++) {
+          const wx = wrapX(cx + dx);
+          const key = keyOf(wx, ny);
+          const distSq = dx * dx + dy * dy;
+          const prev = byKey.get(key);
+          if (!prev || distSq < prev.distSq) {
+            byKey.set(key, { wx, ny, key, distSq });
+          }
+        }
+      }
+      const candidates = [...byKey.values()].sort((a, b) => a.distSq - b.distSq);
+
+      let anchorKey = null;
+      if (!hasDatum) {
+        const anchorWgs = frame.toWgs84(simOffset.x, simOffset.z);
+        const anchorTp = lonLatToTilePixel(anchorWgs.lat, anchorWgs.lon, zoom);
+        const ax = wrapX(Math.floor(anchorTp.fx));
+        const ay = Math.floor(anchorTp.fy);
+        if (ay >= 0 && ay < tilesAcross) anchorKey = keyOf(ax, ay);
+      }
+
+      let selected = candidates.slice(0, cacheLimit);
+      const needsSeparateDatumSlot =
+        !hasDatum && anchorKey !== null && !selected.some(c => c.key === anchorKey);
+      if (needsSeparateDatumSlot && cacheLimit > 1) {
+        selected = candidates.slice(0, cacheLimit - 1);
+      }
+
+      // Pre-touch already-cached retained tiles so new neighbor fetches never
+      // evict the current tile or pending datum tile when they sit at LRU.
+      if (needsSeparateDatumSlot) touch(anchorKey);
+      for (let i = selected.length - 1; i >= 0; i--) touch(selected[i].key);
+
+      // Request farthest to nearest so (cx, cy) finishes at the MRU end.
+      for (let i = selected.length - 1; i >= 0; i--) {
+        request(selected[i].wx, selected[i].ny);
+      }
+      if (!hasDatum) {
+        ensureDatum(true);
+        if (selected.length > 0) touch(selected[0].key);
       }
     },
     dispose() {

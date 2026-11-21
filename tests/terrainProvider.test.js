@@ -422,3 +422,153 @@ test('lonLatToTilePixel and createTerrariumProvider wrap tile columns across the
   assert.ok(!requestedX.some(tx => tx < 0 || tx >= 2048));
   provider.dispose();
 });
+
+test('createTerrariumProvider ignores stale completions and rejections from evicted tile requests', async () => {
+  const deferred = [];
+  const provider = createTerrariumProvider({
+    anchor: { lat: 35.1652, lon: 128.939, headingDeg: 0 },
+    maxTiles: 1,
+    loadTile: (z, tx, ty) => new Promise((resolve, reject) => {
+      deferred.push({ key: `${z}/${tx}/${ty}`, resolve, reject });
+    }),
+  });
+
+  // 1. Latch datum at (0, 0).
+  assert.equal(provider.getHeight(0, 0), null);
+  await settle();
+  assert.equal(deferred.length, 1);
+  deferred.shift().resolve(flatTile(100));
+  await settle();
+  assert.equal(provider.isReady(0, 0), true);
+  assert.ok(Math.abs(provider.getHeight(0, 0)) < 0.01);
+
+  // 2. Request B (30km), evict with C (60km), re-request B, resolve B2, then reject stale B1.
+  assert.equal(provider.getHeight(30000, 0), null);
+  await settle();
+  assert.equal(deferred.length, 1);
+  const b1 = deferred.shift();
+
+  assert.equal(provider.getHeight(60000, 0), null);
+  await settle();
+  assert.equal(deferred.length, 1);
+  const c1 = deferred.shift();
+  assert.notEqual(c1.key, b1.key);
+
+  assert.equal(provider.getHeight(30000, 0), null);
+  await settle();
+  assert.equal(deferred.length, 1);
+  const b2 = deferred.shift();
+  assert.equal(b2.key, b1.key);
+
+  b2.resolve(flatTile(250));
+  await settle();
+  assert.equal(provider.isReady(30000, 0), true);
+  assert.ok(Math.abs(provider.getHeight(30000, 0) - 150) < 0.01);
+
+  b1.reject(new Error('stale eviction failure'));
+  await settle();
+  assert.equal(provider.isReady(30000, 0), true);
+  assert.ok(Math.abs(provider.getHeight(30000, 0) - 150) < 0.01);
+
+  // 3. Stale resolution from an evicted request must not overwrite a newer pending request.
+  assert.equal(provider.getHeight(60000, 0), null);
+  await settle();
+  const c2 = deferred.shift();
+  assert.equal(provider.getHeight(90000, 0), null);
+  await settle();
+  deferred.shift().reject(new Error('evict C2'));
+  await settle();
+  assert.equal(provider.getHeight(60000, 0), null);
+  await settle();
+  const c3 = deferred.shift();
+  assert.equal(c3.key, c2.key);
+
+  c2.resolve(flatTile(999));
+  await settle();
+  assert.equal(provider.isReady(60000, 0), false);
+
+  c3.resolve(flatTile(300));
+  await settle();
+  assert.equal(provider.isReady(60000, 0), true);
+  assert.ok(Math.abs(provider.getHeight(60000, 0) - 200) < 0.01);
+
+  c1.reject(new Error('cleanup'));
+  await settle();
+  provider.dispose();
+});
+
+test('createTerrariumProvider retains current tile and datum when update() prefetch exceeds maxTiles', async () => {
+  const frame = createAnchorFrame(ANCHOR);
+  const anchorTp = lonLatToTilePixel(ANCHOR.lat, ANCHOR.lon, 11);
+  const anchorKey = `11/${Math.floor(anchorTp.fx)}/${Math.floor(anchorTp.fy)}`;
+  const targetWgs = frame.toWgs84(30000, 0);
+  const targetTp = lonLatToTilePixel(targetWgs.lat, targetWgs.lon, 11);
+  const targetKey = `11/${Math.floor(targetTp.fx)}/${Math.floor(targetTp.fy)}`;
+
+  const fetchCounts = new Map();
+  const p4 = createTerrariumProvider({
+    anchor: ANCHOR,
+    maxTiles: 4,
+    prefetchRadius: 1,
+    loadTile: async (z, tx, ty) => {
+      const k = `${z}/${tx}/${ty}`;
+      fetchCounts.set(k, (fetchCounts.get(k) || 0) + 1);
+      return flatTile(k === targetKey ? 180 : 100);
+    },
+  });
+
+  // Calling update() away from anchor with maxTiles: 4 (< 9 tiles) must retain datum + center tile.
+  p4.update({ x: 30000, z: 0 });
+  await settle();
+  assert.equal(p4.isReady(30000, 0), true);
+  assert.ok(Math.abs(p4.getHeight(30000, 0) - 80) < 0.01);
+  assert.equal(fetchCounts.get(targetKey), 1);
+
+  for (let i = 0; i < 5; i++) {
+    p4.update({ x: 30000, z: 0 });
+    await settle();
+    assert.equal(p4.isReady(30000, 0), true);
+    assert.ok(Math.abs(p4.getHeight(30000, 0) - 80) < 0.01);
+  }
+  assert.equal(fetchCounts.get(targetKey), 1);
+  p4.dispose();
+
+  // Pre-touch regression: even when the center tile sits at the LRU slot, update() must keep it.
+  const lruCounts = new Map();
+  const pLru = createTerrariumProvider({
+    anchor: ANCHOR,
+    maxTiles: 4,
+    prefetchRadius: 1,
+    loadTile: async (z, tx, ty) => {
+      const k = `${z}/${tx}/${ty}`;
+      lruCounts.set(k, (lruCounts.get(k) || 0) + 1);
+      return flatTile(100);
+    },
+  });
+  for (const x of [0, 30000, 60000, 90000]) {
+    pLru.getHeight(x, 0);
+    await settle();
+  }
+  assert.equal(lruCounts.get(anchorKey), 1);
+  pLru.update({ x: 0, z: 0 });
+  assert.equal(pLru.isReady(0, 0), true);
+  await settle();
+  assert.equal(lruCounts.get(anchorKey), 1);
+  pLru.dispose();
+
+  // maxTiles: 1, prefetchRadius: 1 must converge datum first and then keep the center tile.
+  const p1 = createTerrariumProvider({
+    anchor: ANCHOR,
+    maxTiles: 1,
+    prefetchRadius: 1,
+    loadTile: async (z, tx, ty) => flatTile(`${z}/${tx}/${ty}` === targetKey ? 165 : 100),
+  });
+  p1.update({ x: 30000, z: 0 });
+  await settle();
+  p1.update({ x: 30000, z: 0 });
+  await settle();
+  p1.update({ x: 30000, z: 0 });
+  assert.equal(p1.isReady(30000, 0), true);
+  assert.ok(Math.abs(p1.getHeight(30000, 0) - 65) < 0.01);
+  p1.dispose();
+});
