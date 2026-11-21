@@ -69,10 +69,22 @@ armed. The exported `approachDeviation(approach, state)` computes deviations for
 caller-owned approach geometry (threshold, headingDeg, gsAngleDeg, elevationFt).
 No airport or scenery database is bundled. Other autopilot modes need no callback.
 
-Root exports cover the main systems, aircraft presets and navigation helper.
-Focused subpaths include `physics/FlightPhysicsCore.js`,
+Root exports cover the main systems, aircraft presets, navigation helper and
+terrain providers. Focused subpaths include `physics/FlightPhysicsCore.js`,
 `controls/FlightControlLaws.js`, `physics/Autopilot.js`,
-`systems/FlightWarningsCore.js` and other explicitly exported physics modules.
+`systems/FlightWarningsCore.js`, `terrain/TerrainProvider.js`,
+`terrain/TerrariumElevationProvider.js` and other explicitly exported physics
+modules.
+
+`terrain/TerrainProvider.js` defines the headless ground-truth contract
+(`getHeight`, `getNormal`, `isReady`, `update`, `dispose`) along with
+`analyticTerrainProvider`, `createGroundSurfaceQueries` (pairing height,
+`THREE.Vector3`-adapted slope normals, and optional water state across
+providers/fallbacks), `resolveGroundHeight` and
+`assertTerrainProviderContract`. `terrain/TerrariumElevationProvider.js` provides
+`decodeTerrarium`, `lonLatToTilePixel`, `createAnchorFrame` and
+`createTerrariumProvider` with caller-injected `loadTile(z, x, y)` so tile I/O
+stays outside this package.
 
 ## Develop and release
 

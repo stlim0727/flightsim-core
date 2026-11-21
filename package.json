@@ -1,6 +1,6 @@
 {
   "name": "@stlim0727/flightsim-core",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Headless 6-DOF flight physics, control laws, autopilot and warning state machines",
   "type": "module",
   "license": "MIT",
@@ -42,7 +42,9 @@
     "./physics/stallSpeedEstimate.js": "./src/physics/stallSpeedEstimate.js",
     "./physics/trimWheel.js": "./src/physics/trimWheel.js",
     "./systems/FlightWarningsCore.js": "./src/systems/FlightWarningsCore.js",
-    "./navigation/approachDeviation.js": "./src/navigation/approachDeviation.js"
+    "./navigation/approachDeviation.js": "./src/navigation/approachDeviation.js",
+    "./terrain/TerrainProvider.js": "./src/terrain/TerrainProvider.js",
+    "./terrain/TerrariumElevationProvider.js": "./src/terrain/TerrariumElevationProvider.js"
   },
   "files": [
     "src/",
