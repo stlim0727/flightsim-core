@@ -14,13 +14,16 @@ try {
       AIRCRAFT_REGISTRY, approachDeviation,
       analyticTerrainProvider, createGroundSurfaceQueries, assertTerrainProviderContract,
       assertTerrainProviderConformance, surfaceNormal, createTileScheduler,
-      decodeTerrarium, createTerrariumProvider, wgs84ToEnu, enuToWgs84 } from '@stlim0727/flightsim-core';
+      decodeTerrarium, createTerrariumProvider, wgs84ToEnu, enuToWgs84,
+      createAuthorityZones, validateTerrainProviderOverride } from '@stlim0727/flightsim-core';
     import { FlightPhysicsCore as SubpathCore } from '@stlim0727/flightsim-core/physics/FlightPhysicsCore.js';
     import { analyticTerrainProvider as SubpathAnalytic, createGroundSurfaceQueries as SubpathSurface } from '@stlim0727/flightsim-core/terrain/TerrainProvider.js';
     import { decodeTerrarium as SubpathDecode, createTerrariumProvider as SubpathTerrarium } from '@stlim0727/flightsim-core/terrain/TerrariumElevationProvider.js';
     import { wgs84ToEnu as SubpathWgs84ToEnu } from '@stlim0727/flightsim-core/geo/Geodesy.js';
     import { createTileScheduler as SubpathScheduler } from '@stlim0727/flightsim-core/tile/TileScheduler.js';
     import { assertTerrainProviderConformance as SubpathConformance } from '@stlim0727/flightsim-core/terrain/conformance.js';
+    import { createAuthorityZones as SubpathAuthority } from '@stlim0727/flightsim-core/terrain/AuthorityZones.js';
+    import { validateTerrainProviderOverride as SubpathValidator } from '@stlim0727/flightsim-core/terrain/conformance.js';
     assert.equal(globalThis.window, undefined);
     assert.equal(globalThis.document, undefined);
     assert.equal(FlightPhysicsCore, SubpathCore);
@@ -31,6 +34,9 @@ try {
     assert.equal(wgs84ToEnu, SubpathWgs84ToEnu);
     assert.equal(createTileScheduler, SubpathScheduler);
     assert.equal(assertTerrainProviderConformance, SubpathConformance);
+    assert.equal(createAuthorityZones, SubpathAuthority);
+    assert.equal(validateTerrainProviderOverride, SubpathValidator);
+    assert.equal(createAuthorityZones([{ minX: 0, maxX: 1, minZ: 0, maxZ: 1 }]).protects(0.5, 0.5), true);
     const origin = { latitude: 35.1652, longitude: 128.939 };
     const enu = wgs84ToEnu(origin.latitude + 0.01, origin.longitude, origin);
     const back = enuToWgs84(enu.east, enu.north, enu.up, origin);
@@ -39,6 +45,9 @@ try {
     assert.equal(await scheduler.schedule('k', 1, async () => 7), 7);
     scheduler.dispose();
     assert.equal(surfaceNormal((x) => x, 0, 0).y > 0, true);
+    let override = null;
+    const validatedOverride = validateTerrainProviderOverride(() => override);
+    assert.equal(validatedOverride(), null);
 
     // Terrain provider smoke test without browser globals
     const flatTile = metres => {

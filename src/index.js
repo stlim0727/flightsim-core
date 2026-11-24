@@ -18,3 +18,4 @@ export { WGS84_A, WGS84_B, WGS84_E2, WGS84_E2_PRIME,
   wgs84ToEcef, ecefToWgs84, wgs84ToEnu, enuToWgs84, tilePixelToLonLat } from './geo/Geodesy.js';
 export * from './tile/TileScheduler.js';
 export * from './terrain/conformance.js';
+export * from './terrain/AuthorityZones.js';

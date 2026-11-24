@@ -73,18 +73,29 @@ Root exports cover the main systems, aircraft presets, navigation helper and
 terrain providers. Focused subpaths include `physics/FlightPhysicsCore.js`,
 `controls/FlightControlLaws.js`, `physics/Autopilot.js`,
 `systems/FlightWarningsCore.js`, `terrain/TerrainProvider.js`,
-`terrain/TerrariumElevationProvider.js` and other explicitly exported physics
-modules.
+`terrain/TerrariumElevationProvider.js`, `terrain/conformance.js`,
+`terrain/AuthorityZones.js`, `geo/Geodesy.js`, `tile/TileScheduler.js` and other
+explicitly exported physics modules.
 
 `terrain/TerrainProvider.js` defines the headless ground-truth contract
 (`getHeight`, `getNormal`, `isReady`, `update`, `dispose`) along with
 `analyticTerrainProvider`, `createGroundSurfaceQueries` (pairing height,
 `THREE.Vector3`-adapted slope normals, and optional water state across
-providers/fallbacks), `resolveGroundHeight` and
-`assertTerrainProviderContract`. `terrain/TerrariumElevationProvider.js` provides
+providers/fallbacks), `resolveGroundHeight`, `assertTerrainProviderContract` and
+`surfaceNormal`. `terrain/TerrariumElevationProvider.js` provides
 `decodeTerrarium`, `lonLatToTilePixel`, `createAnchorFrame` and
-`createTerrariumProvider` with caller-injected `loadTile(z, x, y)` so tile I/O
-stays outside this package.
+`createTerrariumProvider` with caller-injected `loadTile(z, x, y)` and an
+optional injected `toWgs84` frame, so tile I/O and frame choice stay outside
+this package.
+
+`terrain/conformance.js` adds `assertTerrainProviderConformance` and
+`validateTerrainProviderOverride` for one-time checks where providers are
+attached. `geo/Geodesy.js` provides frame-agnostic WGS84/ECEF/ENU and Web
+Mercator primitives; apps keep their own local-frame adapters.
+`tile/TileScheduler.js` owns deduplication, bounded concurrency, priority and
+metrics without owning fetch, decode or cache policy. `terrain/AuthorityZones.js`
+normalizes runway flatten zones and protected/exclude areas behind one
+containment and blend helper.
 
 ## Develop and release
 
