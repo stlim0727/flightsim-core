@@ -22,6 +22,7 @@ export function createTileScheduler(options = {}) {
 
   function setPriorityContext(value) {
     priorityContext = value;
+    for (const job of queue) job.priority = priorityOf(job.value, value);
   }
 
   function pump() {
@@ -32,7 +33,7 @@ export function createTileScheduler(options = {}) {
       stats.active++;
       Promise.resolve()
         .then(() => job.run(job.value))
-        .then(job.resolve, job.reject)
+        .then(job.resolve, (error) => { stats.errors++; job.reject(error); })
         .finally(() => {
           stats.active--;
           pump();

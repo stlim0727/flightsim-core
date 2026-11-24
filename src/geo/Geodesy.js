@@ -104,8 +104,10 @@ export function wgs84ToEnu(latitude, longitude, origin, height = 0) {
 }
 
 /**
- * Local ENU metres -> geodetic degrees. Exact ellipsoid intersection keeps
- * regional distances sub-metre instead of drifting with flat-Earth scaling.
+ * Local ENU metres -> geodetic degrees and height. `east`/`north` are projected
+ * onto the ellipsoid for regional accuracy; `up` is applied along the origin
+ * normal and measured as height above the projected ellipsoid point, so
+ * elevated points keep their altitude instead of collapsing to zero height.
  */
 export function enuToWgs84(east, north, up, origin) {
   const o = originOf(origin);
@@ -115,9 +117,9 @@ export function enuToWgs84(east, north, up, origin) {
   const c = wgs84ToEcef(o.latitude, o.longitude, o.height);
   const a = axes(o);
 
-  const px = c.x + a.east[0] * e + a.north[0] * n + a.up[0] * u;
-  const py = c.y + a.east[1] * e + a.north[1] * n + a.up[1] * u;
-  const pz = c.z + a.east[2] * e + a.north[2] * n + a.up[2] * u;
+  const px = c.x + a.east[0] * e + a.north[0] * n;
+  const py = c.y + a.east[1] * e + a.north[1] * n;
+  const pz = c.z + a.east[2] * e + a.north[2] * n;
 
   const A = (a.up[0] * a.up[0] + a.up[1] * a.up[1]) / A2 + (a.up[2] * a.up[2]) / B2;
   const B = 2 * ((px * a.up[0] + py * a.up[1]) / A2 + (pz * a.up[2]) / B2);
@@ -140,7 +142,19 @@ export function enuToWgs84(east, north, up, origin) {
   const y1 = (-B + Math.sqrt(disc)) / (2 * A);
   const y2 = (-B - Math.sqrt(disc)) / (2 * A);
   const y = Math.abs(y1) < Math.abs(y2) ? y1 : y2;
-  return ecefToWgs84(px + a.up[0] * y, py + a.up[1] * y, pz + a.up[2] * y);
+  const sx = px + a.up[0] * y;
+  const sy = py + a.up[1] * y;
+  const sz = pz + a.up[2] * y;
+  const surface = ecefToWgs84(sx, sy, sz);
+  const lat = surface.latitude * D2R;
+  const lon = surface.longitude * D2R;
+  const cosLat = Math.cos(lat);
+  const alignment = cosLat * Math.cos(lon) * a.up[0]
+    + cosLat * Math.sin(lon) * a.up[1]
+    + Math.sin(lat) * a.up[2];
+  // S = P0 + y * originUp, so the ellipsoid-relative height of originUp*u at
+  // the target is (u - y) projected onto the target's normal.
+  return { latitude: surface.latitude, longitude: surface.longitude, height: (u - y) * alignment };
 }
 
 /** WGS84 degrees -> fractional Web Mercator tile coordinates. */

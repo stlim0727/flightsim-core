@@ -58,3 +58,38 @@ test('scheduler rejects queued work after dispose', async () => {
   release();
   assert.equal(await first, undefined);
 });
+
+test('scheduler records rejected work in the errors metric', async () => {
+  const scheduler = createTileScheduler();
+  await assert.rejects(
+    scheduler.schedule('bad', 1, async () => { throw new Error('load failed'); }),
+    /load failed/
+  );
+  assert.equal(scheduler.stats().errors, 1);
+  scheduler.dispose();
+});
+
+test('scheduler recomputes queued priorities when the context changes', async () => {
+  const scheduler = createTileScheduler({
+    maxConcurrent: 1,
+    priorityOf: (value, context) => Math.abs(value - context),
+  });
+  scheduler.setPriorityContext(0);
+  let release;
+  let started;
+  const startedPromise = new Promise((resolve) => { started = resolve; });
+  const order = [];
+  const first = scheduler.schedule('first', 0, () => {
+    started();
+    return new Promise((resolve) => { release = resolve; });
+  });
+  await startedPromise;
+  const near = scheduler.schedule('near', 100, async () => { order.push(100); return 100; });
+  const far = scheduler.schedule('far', 1, async () => { order.push(1); return 1; });
+
+  scheduler.setPriorityContext(100);
+  release();
+  await Promise.all([first, near, far]);
+  assert.deepEqual(order, [100, 1]);
+  scheduler.dispose();
+});
