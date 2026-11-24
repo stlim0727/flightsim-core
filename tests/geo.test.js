@@ -43,3 +43,16 @@ test('Web Mercator forward/inverse agree at multiple zooms', () => {
     assert.ok(Math.abs(exact.lon - ORIGIN.longitude) < 1e-9);
   }
 });
+
+test('ENU inverse preserves altitude for elevated origins and targets', () => {
+  const origin = { ...ORIGIN, height: 100 };
+  const vertical = enuToWgs84(0, 0, 1000, origin);
+  assert.ok(Math.abs(vertical.height - 1100) < 1e-6);
+
+  const target = { latitude: 37.75, longitude: 127.2, height: 500 };
+  const enu = wgs84ToEnu(target.latitude, target.longitude, origin, target.height);
+  const back = enuToWgs84(enu.east, enu.north, enu.up, origin);
+  assert.ok(Math.abs(back.height - target.height) < 1e-3);
+  assert.ok(Math.abs(back.latitude - target.latitude) < 1e-4);
+  assert.ok(Math.abs(back.longitude - target.longitude) < 1e-4);
+});
