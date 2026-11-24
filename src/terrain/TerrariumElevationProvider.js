@@ -76,7 +76,8 @@ export function createTerrariumProvider(options) {
   if ((!anchor && typeof toWgs84 !== 'function') || typeof loadTile !== 'function') {
     throw new Error('createTerrariumProvider needs { loadTile } and either { anchor } or { toWgs84 }');
   }
-  const authority = createAuthorityZones(flatZones);
+  // Legacy flatZones omitted both `mode` and `height` and still flattened to 0.
+  const authority = createAuthorityZones(flatZones.map(zone => ({ ...zone, mode: zone.mode ?? 'flatten' })));
   const frame = typeof toWgs84 === 'function' ? { toWgs84 } : createAnchorFrame(anchor, simOffset);
   const tilesAcross = 2 ** zoom;
   const cacheLimit = Number.isFinite(maxTiles)
