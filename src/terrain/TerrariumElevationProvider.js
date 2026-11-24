@@ -12,6 +12,7 @@
 
 import { lonLatToTilePixel } from '../geo/Geodesy.js';
 import { surfaceNormal } from './TerrainProvider.js';
+import { createAuthorityZones } from './AuthorityZones.js';
 
 export { lonLatToTilePixel };
 
@@ -52,11 +53,6 @@ export function createAnchorFrame(anchor, simOffset = { x: 0, z: 0 }) {
   };
 }
 
-function zoneDistance(x, z, zone) {
-  const dx = x < zone.minX ? zone.minX - x : x > zone.maxX ? x - zone.maxX : 0;
-  const dz = z < zone.minZ ? zone.minZ - z : z > zone.maxZ ? z - zone.maxZ : 0;
-  return Math.hypot(dx, dz);
-}
 
 /**
  * Elevation-only provider backed by Terrarium tiles. `loadTile(z, x, y)` must
@@ -80,7 +76,8 @@ export function createTerrariumProvider(options) {
   if ((!anchor && typeof toWgs84 !== 'function') || typeof loadTile !== 'function') {
     throw new Error('createTerrariumProvider needs { loadTile } and either { anchor } or { toWgs84 }');
   }
-
+  // Legacy flatZones omitted both `mode` and `height` and still flattened to 0.
+  const authority = createAuthorityZones(flatZones.map(zone => ({ ...zone, mode: zone.mode ?? 'flatten' })));
   const frame = typeof toWgs84 === 'function' ? { toWgs84 } : createAnchorFrame(anchor, simOffset);
   const tilesAcross = 2 ** zoom;
   const cacheLimit = Number.isFinite(maxTiles)
@@ -104,27 +101,6 @@ export function createTerrariumProvider(options) {
     tiles.set(key, value);
   }
 
-  function applyFlatZones(x, z, rawHeight) {
-    if (!flatZones.length) return rawHeight;
-    let bestW = 0;
-    let bestH = rawHeight;
-    for (let i = 0; i < flatZones.length; i++) {
-      const zone = flatZones[i];
-      const dist = zoneDistance(x, z, zone);
-      const targetH = zone.height ?? 0;
-      if (dist === 0) return targetH;
-      const margin = zone.blendMargin ?? 400;
-      if (margin > 0 && dist < margin) {
-        const t = dist / margin;
-        const w = 1 - t * t * (3 - 2 * t);
-        if (w > bestW) {
-          bestW = w;
-          bestH = targetH * w + rawHeight * (1 - w);
-        }
-      }
-    }
-    return bestH;
-  }
 
   function request(tx, ty) {
     if (disposed) return 'disposed';
@@ -220,16 +196,14 @@ export function createTerrariumProvider(options) {
       // Always request the tile for (x, z), even while the datum tile is still loading.
       const h = sampleMsl(x, z, true);
       if (!hasDatum && !ensureDatum(true)) return null;
-      return h === null ? null : applyFlatZones(x, z, h - datumM);
+      return h === null ? null : authority.flatten(x, z, h - datumM);
     },
     isReady(x, z) {
       return ensureDatum(false) && sampleMsl(x, z, false) !== null;
     },
     isWater(x, z) {
       if (!ensureDatum(false)) return false;
-      for (let i = 0; i < flatZones.length; i++) {
-        if (zoneDistance(x, z, flatZones[i]) === 0) return false;
-      }
+      if (authority.contains(x, z)) return false;
       const msl = sampleMsl(x, z, false);
       return msl !== null && msl <= 0.1;
     },

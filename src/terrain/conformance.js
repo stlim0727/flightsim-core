@@ -50,3 +50,19 @@ export function assertTerrainProviderConformance(provider, points = [[0, 0]]) {
   }
   return true;
 }
+
+/**
+ * Wrap a provider getter so a new provider instance is conformance-checked once
+ * on first use, not on every physics query. `null` is always accepted.
+ */
+export function validateTerrainProviderOverride(getProvider, points = [[0, 0]]) {
+  let validated = null;
+  return () => {
+    const provider = getProvider?.() ?? null;
+    if (provider && provider !== validated) {
+      assertTerrainProviderConformance(provider, points);
+      validated = provider;
+    }
+    return provider;
+  };
+}

@@ -608,3 +608,16 @@ test('createTerrariumProvider accepts an injected WGS84 frame without an anchor'
   assert.deepEqual(requested[0], [Math.floor(fx), Math.floor(fy)]);
   provider.dispose();
 });
+
+test('legacy flatZones without height still flatten sampled terrain to zero', async () => {
+  const anchorTy = Math.floor(lonLatToTilePixel(10, 20, 11).fy);
+  const provider = createTerrariumProvider({
+    toWgs84: (_x, z) => ({ lat: z === 0 ? 10 : 11, lon: 20 }),
+    flatZones: [{ minX: -100, maxX: 100, minZ: -2000, maxZ: 0 }],
+    loadTile: async (_z, _tx, ty) => flatTile(ty === anchorTy ? 0 : 100),
+  });
+  provider.getHeight(0, -1000);
+  await settle();
+  assert.ok(Math.abs(provider.getHeight(0, -1000)) < 0.01);
+  provider.dispose();
+});
