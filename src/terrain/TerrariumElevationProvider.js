@@ -10,11 +10,15 @@
  * free of DOM, fetch, canvas, or browser globals.
  */
 
+import { lonLatToTilePixel } from '../geo/Geodesy.js';
+import { surfaceNormal } from './TerrainProvider.js';
+
+export { lonLatToTilePixel };
+
 const TILE_SIZE = 256;
 const DEFAULT_ZOOM = 11;
 const D2R = Math.PI / 180;
 const DEFAULT_RETRY_MS = 5000;
-const MAX_MERCATOR_LAT = 85.05112878;
 
 /** Terrarium PNG RGBA -> Float32 heights (metres above MSL). */
 export function decodeTerrarium(rgba) {
@@ -25,16 +29,6 @@ export function decodeTerrarium(rgba) {
   return heights;
 }
 
-/** WGS84 degrees -> Web Mercator fractional tile coordinates `{ fx, fy }`. */
-export function lonLatToTilePixel(lat, lon, zoom) {
-  const n = 2 ** zoom;
-  const wrappedLon = ((((lon + 180) % 360) + 360) % 360) - 180;
-  const clampedLat = Math.min(MAX_MERCATOR_LAT, Math.max(-MAX_MERCATOR_LAT, lat));
-  const latRad = clampedLat * D2R;
-  const fx = ((wrappedLon + 180) / 360) * n;
-  const fy = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
-  return { fx, fy };
-}
 
 /**
  * Sim (x, z) -> WGS84 around a runway anchor.
@@ -74,6 +68,7 @@ export function createTerrariumProvider(options) {
   const {
     anchor,
     simOffset = { x: 0, z: 0 },
+    toWgs84,
     loadTile,
     zoom = DEFAULT_ZOOM,
     maxTiles = 24,
@@ -82,11 +77,11 @@ export function createTerrariumProvider(options) {
     retryMs = DEFAULT_RETRY_MS,
     now = () => Date.now(),
   } = options || {};
-  if (!anchor || typeof loadTile !== 'function') {
-    throw new Error('createTerrariumProvider needs { anchor, loadTile }');
+  if ((!anchor && typeof toWgs84 !== 'function') || typeof loadTile !== 'function') {
+    throw new Error('createTerrariumProvider needs { loadTile } and either { anchor } or { toWgs84 }');
   }
 
-  const frame = createAnchorFrame(anchor, simOffset);
+  const frame = typeof toWgs84 === 'function' ? { toWgs84 } : createAnchorFrame(anchor, simOffset);
   const tilesAcross = 2 ** zoom;
   const cacheLimit = Number.isFinite(maxTiles)
     ? Math.max(1, Math.floor(maxTiles))
@@ -239,17 +234,7 @@ export function createTerrariumProvider(options) {
       return msl !== null && msl <= 0.1;
     },
     getNormal(x, z) {
-      const d = 30;
-      const hl = provider.getHeight(x - d, z);
-      const hr = provider.getHeight(x + d, z);
-      const hf = provider.getHeight(x, z - d);
-      const hb = provider.getHeight(x, z + d);
-      if ([hl, hr, hf, hb].some(v => v === null)) return null;
-      const nx = hl - hr;
-      const nz = hf - hb;
-      const ny = 2 * d;
-      const len = Math.hypot(nx, ny, nz);
-      return { x: nx / len, y: ny / len, z: nz / len };
+      return surfaceNormal(provider.getHeight, x, z);
     },
     update(position) {
       if (!position || disposed) return;

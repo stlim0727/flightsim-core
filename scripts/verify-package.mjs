@@ -13,10 +13,14 @@ try {
     import { FlightPhysicsCore, FlightControlLaws, FlightWarningsCore, AutopilotController,
       AIRCRAFT_REGISTRY, approachDeviation,
       analyticTerrainProvider, createGroundSurfaceQueries, assertTerrainProviderContract,
-      decodeTerrarium, createTerrariumProvider } from '@stlim0727/flightsim-core';
+      assertTerrainProviderConformance, surfaceNormal, createTileScheduler,
+      decodeTerrarium, createTerrariumProvider, wgs84ToEnu, enuToWgs84 } from '@stlim0727/flightsim-core';
     import { FlightPhysicsCore as SubpathCore } from '@stlim0727/flightsim-core/physics/FlightPhysicsCore.js';
     import { analyticTerrainProvider as SubpathAnalytic, createGroundSurfaceQueries as SubpathSurface } from '@stlim0727/flightsim-core/terrain/TerrainProvider.js';
     import { decodeTerrarium as SubpathDecode, createTerrariumProvider as SubpathTerrarium } from '@stlim0727/flightsim-core/terrain/TerrariumElevationProvider.js';
+    import { wgs84ToEnu as SubpathWgs84ToEnu } from '@stlim0727/flightsim-core/geo/Geodesy.js';
+    import { createTileScheduler as SubpathScheduler } from '@stlim0727/flightsim-core/tile/TileScheduler.js';
+    import { assertTerrainProviderConformance as SubpathConformance } from '@stlim0727/flightsim-core/terrain/conformance.js';
     assert.equal(globalThis.window, undefined);
     assert.equal(globalThis.document, undefined);
     assert.equal(FlightPhysicsCore, SubpathCore);
@@ -24,6 +28,17 @@ try {
     assert.equal(createGroundSurfaceQueries, SubpathSurface);
     assert.equal(decodeTerrarium, SubpathDecode);
     assert.equal(createTerrariumProvider, SubpathTerrarium);
+    assert.equal(wgs84ToEnu, SubpathWgs84ToEnu);
+    assert.equal(createTileScheduler, SubpathScheduler);
+    assert.equal(assertTerrainProviderConformance, SubpathConformance);
+    const origin = { latitude: 35.1652, longitude: 128.939 };
+    const enu = wgs84ToEnu(origin.latitude + 0.01, origin.longitude, origin);
+    const back = enuToWgs84(enu.east, enu.north, enu.up, origin);
+    assert.ok(Math.abs(back.latitude - origin.latitude - 0.01) < 1e-9);
+    const scheduler = createTileScheduler();
+    assert.equal(await scheduler.schedule('k', 1, async () => 7), 7);
+    scheduler.dispose();
+    assert.equal(surfaceNormal((x) => x, 0, 0).y > 0, true);
 
     // Terrain provider smoke test without browser globals
     const flatTile = metres => {
@@ -44,6 +59,7 @@ try {
       getNormal: () => ({ x: -0.1 / len, y: 1 / len, z: 0 }),
     });
     assertTerrainProviderContract(analytic, [[0, 0]]);
+    assertTerrainProviderConformance(analytic, [[0, 0]]);
     const terrarium = createTerrariumProvider({
       anchor: { lat: 35.1652, lon: 128.939, headingDeg: 353.9 },
       loadTile: async () => flatTile(250),

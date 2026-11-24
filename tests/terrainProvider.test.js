@@ -9,6 +9,7 @@ import {
   createGroundSurfaceQueries,
   resolveGroundHeight,
   toNormalVector3,
+  surfaceNormal,
 } from '../src/terrain/TerrainProvider.js';
 import {
   createAnchorFrame,
@@ -16,6 +17,7 @@ import {
   decodeTerrarium,
   lonLatToTilePixel,
 } from '../src/terrain/TerrariumElevationProvider.js';
+import { assertTerrainProviderConformance } from '../src/terrain/conformance.js';
 
 const ANCHOR = { lat: 35.1652, lon: 128.939, headingDeg: 353.9 };
 const GIMHAE_OFFSET = { x: 160, z: 1600 };
@@ -571,4 +573,38 @@ test('createTerrariumProvider retains current tile and datum when update() prefe
   assert.equal(p1.isReady(30000, 0), true);
   assert.ok(Math.abs(p1.getHeight(30000, 0) - 65) < 0.01);
   p1.dispose();
+});
+
+test('surfaceNormal returns an upward unit normal and rejects unknown samples', () => {
+  const normal = surfaceNormal((x) => x * 0.1, 0, 0);
+  assert.ok(normal.x < 0);
+  assert.ok(normal.y > 0.99);
+  assert.ok(Math.abs(Math.hypot(normal.x, normal.y, normal.z) - 1) < 1e-9);
+  assert.equal(surfaceNormal(() => null, 0, 0), null);
+});
+
+test('shared conformance checks accept analytic providers and reject broken ones', () => {
+  const analytic = analyticTerrainProvider({
+    getHeight: () => 12,
+    getNormal: () => ({ x: 0, y: 1, z: 0 }),
+  });
+  assert.equal(assertTerrainProviderConformance(analytic, [[0, 0]]), true);
+  assert.throws(() => assertTerrainProviderConformance({
+    kind: 'bad', getHeight: () => null, getNormal: () => null,
+    isReady: () => true, update() {}, dispose() {},
+  }), /isReady|authoritative/);
+});
+
+test('createTerrariumProvider accepts an injected WGS84 frame without an anchor', async () => {
+  const requested = [];
+  const injected = { lat: 10, lon: 20 };
+  const provider = createTerrariumProvider({
+    toWgs84: () => injected,
+    loadTile: async (z, tx, ty) => { requested.push([tx, ty]); return flatTile(0); },
+  });
+  provider.getHeight(12345, -6789);
+  await settle();
+  const { fx, fy } = lonLatToTilePixel(injected.lat, injected.lon, 11);
+  assert.deepEqual(requested[0], [Math.floor(fx), Math.floor(fy)]);
+  provider.dispose();
 });

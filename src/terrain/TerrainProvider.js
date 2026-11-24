@@ -36,6 +36,24 @@ export function toNormalVector3(normal, Vector3Ctor = Vector3) {
   if (normal.isVector3) return normal;
   return typeof Vector3Ctor === 'function' ? new Vector3Ctor(x, y, z) : { x, y, z };
 }
+/**
+ * Upward unit normal from a synchronous height sampler using central
+ * differences. Shared by Terrarium and streamed raster providers; returns
+ * null when any sample is unavailable or non-finite.
+ */
+export function surfaceNormal(sample, x, z, stepM = 30) {
+  const d = Number.isFinite(stepM) && stepM > 0 ? stepM : 30;
+  const hl = sample(x - d, z);
+  const hr = sample(x + d, z);
+  const hf = sample(x, z - d);
+  const hb = sample(x, z + d);
+  if ([hl, hr, hf, hb].some(v => v === null || !Number.isFinite(v))) return null;
+  const nx = hl - hr;
+  const nz = hf - hb;
+  const ny = 2 * d;
+  const len = Math.hypot(nx, ny, nz);
+  return { x: nx / len, y: ny / len, z: nz / len };
+}
 
 function sampleReadyHeight(provider, x, z) {
   if (!provider) return null;
