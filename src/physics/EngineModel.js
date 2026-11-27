@@ -30,12 +30,28 @@ function lerpTable(table, x) {
     const [nextX, nextY] = table[index];
     if (x <= nextX) {
       const [previousX, previousY] = table[index - 1];
-        if (nextX <= previousX) return nextY;
+      if (nextX <= previousX) return nextY;
       const fraction = (x - previousX) / (nextX - previousX);
       return previousY + fraction * (nextY - previousY);
     }
   }
   return table.at(-1)[1];
+}
+
+function isaDensityRatio(altitudeMeters) {
+  const h = Math.max(0, altitudeMeters);
+  if (h <= 11000) {
+    return Math.pow(1 - (0.0065 * h) / 288.15, 4.25588);
+  }
+  const tropopauseRatio = Math.pow(216.65 / 288.15, 4.25588);
+  return tropopauseRatio * Math.exp((-9.80665 * (h - 11000)) / (287.05 * 216.65));
+}
+
+export function computeRamLapse(machThrustLapse, tas, mach) {
+  if (Array.isArray(machThrustLapse) && machThrustLapse.length > 0) {
+    return lerpTable(machThrustLapse, mach) ?? 1.0;
+  }
+  return Math.max(0.7, 1.0 - (tas / 300.0) * 0.25);
 }
 
 /**
@@ -86,6 +102,9 @@ export class EngineModel {
       : null;
     this.dryThrustTable = propulsion.dryThrustTable ?? null;
     this.reheatThrustTable = propulsion.reheatThrustTable ?? null;
+    this.thrustTableReferenceAltitudeM = Number.isFinite(propulsion.thrustTableReferenceAltitudeM)
+      ? propulsion.thrustTableReferenceAltitudeM
+      : 18300;
     this.cruiseTsfcKgPerDaNHour = propulsion.cruiseTsfcKgPerDanHour ?? null;
     this.reheatConfig = propulsion.reheat ?? null;
     this.reheatFuelMultiplier = propulsion.reheat?.fuelFlowMultiplier ?? 1.9;
@@ -183,9 +202,7 @@ export class EngineModel {
     // Ram drag / airspeed lapse: slight decrease in net thrust as TAS increases
     const speedOfSound = Math.sqrt(1.4 * 287.05 * Math.min(288.15, Math.max(216.65, 288.15 - 0.0065 * altitudeMeters)));
     const mach = tas / speedOfSound;
-    const ramLapse = this.machThrustLapse
-      ? (lerpTable(this.machThrustLapse, mach) ?? 1.0)
-      : Math.max(0.7, 1.0 - (tas / 300.0) * 0.25);
+    const ramLapse = computeRamLapse(this.machThrustLapse, tas, mach);
 
     const fuelStarved = this.fuelKg <= 0.0;
     let totalThrust = 0;
@@ -234,7 +251,9 @@ export class EngineModel {
           && mach <= this.reheatConfig.autoToMach;
         const reheat = available && (this.reheatActive || auto) ? 1 : 0;
         const installed = dryN + (reheatN - dryN) * reheat;
-        grossThrust = installed * Math.pow(Math.max(0, thrustFactor), 0.65) * altitudeLapse;
+        const refDensityRatio = Math.max(1e-4, isaDensityRatio(this.thrustTableReferenceAltitudeM));
+        const tableAltitudeLapse = Math.min(1.0, Math.pow(Math.max(0, densityRatio) / refDensityRatio, 0.75));
+        grossThrust = installed * Math.pow(Math.max(0, thrustFactor), 0.65) * tableAltitudeLapse;
         if (this.cruiseTsfcKgPerDaNHour && grossThrust > 0) {
           const tsfc = this.cruiseTsfcKgPerDaNHour * (reheat ? this.reheatFuelMultiplier : 1.0);
           runningFuelFlow = grossThrust / 10 * tsfc;

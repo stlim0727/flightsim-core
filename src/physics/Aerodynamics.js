@@ -18,7 +18,7 @@ function interpolateDragTable(table, mach) {
     const [nextMach, nextDrag] = table[index];
     if (mach <= nextMach) {
       const [previousMach, previousDrag] = table[index - 1];
-        if (nextMach <= previousMach) return nextDrag;
+      if (nextMach <= previousMach) return nextDrag;
       const fraction = (mach - previousMach) / (nextMach - previousMach);
       return previousDrag + fraction * (nextDrag - previousDrag);
     }

@@ -196,6 +196,16 @@ export const F16_FALCON = {
     gearDrag: 0.030,
     spoilerDrag: 0.080,
     transonicMachBuffet: 0.95,
+    waveDragTable: [
+      [0.0, 0.0],
+      [0.85, 0.0],
+      [0.95, 0.005],
+      [1.05, 0.022],
+      [1.20, 0.024],
+      [1.60, 0.018],
+      [2.05, 0.016],
+      [2.50, 0.020]
+    ],
 
     cm0: 0.0,
     cma: -0.45,
@@ -231,7 +241,15 @@ export const F16_FALCON = {
     baseFuelFlowKgPerHour: 600.0,
     maxFuelFlowKgPerHour: 4500.0,
     fuelCapacityKg: 3200.0,
-    momentArmMeters: 0.0
+    momentArmMeters: 0.0,
+    machThrustLapse: [
+      [0.0, 1.0],
+      [0.8, 0.95],
+      [1.2, 1.05],
+      [1.8, 1.15],
+      [2.05, 1.05],
+      [2.2, 0.75]
+    ]
   },
 
   // 4. Landing Gear & Ground Interaction
@@ -1024,7 +1042,13 @@ export const CONCORDE = {
     maxFuelFlowKgPerHour: 5680.0,
     fuelCapacityKg: 95680,
     cruiseTsfcKgPerDanHour: 1.2,
-    thrustTableReferenceAltitudeM: 0,
+    thrustTableReferenceAltitudeM: 18300,
+    reheat: {
+      available: true,
+      autoFromMach: 0.93,
+      autoToMach: 1.7,
+      fuelFlowMultiplier: 1.9
+    },
     machThrustLapse: [
       [0, 1],
       [0.8, 1],
