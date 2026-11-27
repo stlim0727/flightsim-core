@@ -1024,6 +1024,7 @@ export const CONCORDE = {
     maxFuelFlowKgPerHour: 5680.0,
     fuelCapacityKg: 95680,
     cruiseTsfcKgPerDanHour: 1.2,
+    thrustTableReferenceAltitudeM: 0,
     machThrustLapse: [
       [0, 1],
       [0.8, 1],

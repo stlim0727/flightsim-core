@@ -52,7 +52,7 @@ describe('Concorde realistic performance', () => {
     const speed = 2.0 * speedOfSound;
 
     const dry = engines.update(0.2, altitude, speed, densityRatio);
-    assert.ok(dry.totalThrust > 150000 && dry.totalThrust < 250000, `dry total thrust ${dry.totalThrust}`);
+    assert.ok(dry.totalThrust > 20000 && dry.totalThrust < 80000, `dry total thrust ${dry.totalThrust}`);
     assert.ok(dry.fuelKg < engines.fuelCapacityKg, 'dry cruise burns fuel');
 
     engines.setReheat(true);

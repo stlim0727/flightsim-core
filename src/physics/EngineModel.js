@@ -30,6 +30,7 @@ function lerpTable(table, x) {
     const [nextX, nextY] = table[index];
     if (x <= nextX) {
       const [previousX, previousY] = table[index - 1];
+        if (nextX <= previousX) return nextY;
       const fraction = (x - previousX) / (nextX - previousX);
       return previousY + fraction * (nextY - previousY);
     }
@@ -64,6 +65,7 @@ export class EngineModel {
 
   loadConfig(config = null) {
     const propulsion = config?.propulsion || config || {};
+    this.reheatActive = false;
     this.numEngines = propulsion.numEngines ?? 2;
     this.maxStaticThrustPerEngine = propulsion.maxStaticThrustPerEngineN ?? propulsion.maxStaticThrustPerEngine ?? 121000;
     this.idleN1 = propulsion.idleN1Percent ?? 22.0;
@@ -85,6 +87,8 @@ export class EngineModel {
     this.dryThrustTable = propulsion.dryThrustTable ?? null;
     this.reheatThrustTable = propulsion.reheatThrustTable ?? null;
     this.cruiseTsfcKgPerDaNHour = propulsion.cruiseTsfcKgPerDanHour ?? null;
+    this.reheatConfig = propulsion.reheat ?? null;
+    this.reheatFuelMultiplier = propulsion.reheat?.fuelFlowMultiplier ?? 1.9;
 
     this.n1 = new Array(this.numEngines).fill(this.idleN1);
     this.targetN1 = new Array(this.numEngines).fill(this.idleN1);
@@ -222,11 +226,17 @@ export class EngineModel {
       if (this.dryThrustTable) {
         const dryN = lerpTable(this.dryThrustTable, mach) ?? this.maxStaticThrustPerEngine;
         const reheatN = this.reheatThrustTable ? (lerpTable(this.reheatThrustTable, mach) ?? dryN) : dryN;
-        const reheat = this.reheatActive ? 1 : 0;
+        const available = this.reheatConfig?.available !== false;
+        const auto = this.reheatConfig
+          && Number.isFinite(this.reheatConfig.autoFromMach)
+          && Number.isFinite(this.reheatConfig.autoToMach)
+          && mach >= this.reheatConfig.autoFromMach
+          && mach <= this.reheatConfig.autoToMach;
+        const reheat = available && (this.reheatActive || auto) ? 1 : 0;
         const installed = dryN + (reheatN - dryN) * reheat;
-        grossThrust = installed * Math.pow(Math.max(0, thrustFactor), 0.65);
+        grossThrust = installed * Math.pow(Math.max(0, thrustFactor), 0.65) * altitudeLapse;
         if (this.cruiseTsfcKgPerDaNHour && grossThrust > 0) {
-          const tsfc = this.cruiseTsfcKgPerDaNHour * (reheat ? 1.9 : 1.0);
+          const tsfc = this.cruiseTsfcKgPerDaNHour * (reheat ? this.reheatFuelMultiplier : 1.0);
           runningFuelFlow = grossThrust / 10 * tsfc;
         }
       }
