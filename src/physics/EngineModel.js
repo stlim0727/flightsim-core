@@ -23,6 +23,37 @@ function n1ToThrustFactor(n1, idleN1 = 22.0, togaN1 = 100.0) {
   return Math.pow(n1Norm, 2.1);
 }
 
+function lerpTable(table, x) {
+  if (!Array.isArray(table) || table.length === 0) return null;
+  if (x <= table[0][0]) return table[0][1];
+  for (let index = 1; index < table.length; index++) {
+    const [nextX, nextY] = table[index];
+    if (x <= nextX) {
+      const [previousX, previousY] = table[index - 1];
+      if (nextX <= previousX) return nextY;
+      const fraction = (x - previousX) / (nextX - previousX);
+      return previousY + fraction * (nextY - previousY);
+    }
+  }
+  return table.at(-1)[1];
+}
+
+function isaDensityRatio(altitudeMeters) {
+  const h = Math.max(0, altitudeMeters);
+  if (h <= 11000) {
+    return Math.pow(1 - (0.0065 * h) / 288.15, 4.25588);
+  }
+  const tropopauseRatio = Math.pow(216.65 / 288.15, 4.25588);
+  return tropopauseRatio * Math.exp((-9.80665 * (h - 11000)) / (287.05 * 216.65));
+}
+
+export function computeRamLapse(machThrustLapse, tas, mach) {
+  if (Array.isArray(machThrustLapse) && machThrustLapse.length > 0) {
+    return lerpTable(machThrustLapse, mach) ?? 1.0;
+  }
+  return Math.max(0.7, 1.0 - (tas / 300.0) * 0.25);
+}
+
 /**
  * Inverts n1ToThrustFactor to find the N1 fan speed that produces a desired thrustFactor.
  */
@@ -43,12 +74,14 @@ export class EngineModel {
     this.throttleCommand = 0.0; // 0.0 to 1.0 (Idle to TOGA)
     this.reverserActive = false;
     this.reverserDeployment = 0.0; // 0.0 to 1.0
+    this.reheatActive = false;
 
     this.loadConfig(config);
   }
 
   loadConfig(config = null) {
     const propulsion = config?.propulsion || config || {};
+    this.reheatActive = false;
     this.numEngines = propulsion.numEngines ?? 2;
     this.maxStaticThrustPerEngine = propulsion.maxStaticThrustPerEngineN ?? propulsion.maxStaticThrustPerEngine ?? 121000;
     this.idleN1 = propulsion.idleN1Percent ?? 22.0;
@@ -64,6 +97,17 @@ export class EngineModel {
 
     this.baseFuelFlowKgPerHour = propulsion.baseFuelFlowKgPerHour ?? 350.0;
     this.maxFuelFlowKgPerHour = propulsion.maxFuelFlowKgPerHour ?? (this.baseFuelFlowKgPerHour * 7.14);
+    this.machThrustLapse = Array.isArray(propulsion.machThrustLapse)
+      ? propulsion.machThrustLapse
+      : null;
+    this.dryThrustTable = propulsion.dryThrustTable ?? null;
+    this.reheatThrustTable = propulsion.reheatThrustTable ?? null;
+    this.thrustTableReferenceAltitudeM = Number.isFinite(propulsion.thrustTableReferenceAltitudeM)
+      ? propulsion.thrustTableReferenceAltitudeM
+      : 18300;
+    this.cruiseTsfcKgPerDaNHour = propulsion.cruiseTsfcKgPerDanHour ?? null;
+    this.reheatConfig = propulsion.reheat ?? null;
+    this.reheatFuelMultiplier = propulsion.reheat?.fuelFlowMultiplier ?? 1.9;
 
     this.n1 = new Array(this.numEngines).fill(this.idleN1);
     this.targetN1 = new Array(this.numEngines).fill(this.idleN1);
@@ -113,6 +157,11 @@ export class EngineModel {
     return this.reverserActive;
   }
 
+  setReheat(active) {
+    this.reheatActive = active === undefined ? !this.reheatActive : Boolean(active);
+    return this.reheatActive;
+  }
+
   setReverser(active, onGround) {
     this.reverserActive = onGround && active;
   }
@@ -151,7 +200,9 @@ export class EngineModel {
 
     const altitudeLapse = Math.pow(Math.max(0.1, densityRatio), 0.75);
     // Ram drag / airspeed lapse: slight decrease in net thrust as TAS increases
-    const ramLapse = Math.max(0.7, 1.0 - (tas / 300.0) * 0.25);
+    const speedOfSound = Math.sqrt(1.4 * 287.05 * Math.min(288.15, Math.max(216.65, 288.15 - 0.0065 * altitudeMeters)));
+    const mach = tas / speedOfSound;
+    const ramLapse = computeRamLapse(this.machThrustLapse, tas, mach);
 
     const fuelStarved = this.fuelKg <= 0.0;
     let totalThrust = 0;
@@ -185,7 +236,30 @@ export class EngineModel {
       const n1Range = Math.max(1.0, this.togaN1 - this.idleN1);
       const n1Fraction = Math.max(0.0, Math.min(1.0, (this.n1[i] - this.idleN1) / n1Range));
       const maxAdditionalFF = Math.max(0, this.maxFuelFlowKgPerHour - this.baseFuelFlowKgPerHour);
-      const runningFuelFlow = this.baseFuelFlowKgPerHour + Math.pow(n1Fraction, 2.5) * maxAdditionalFF * altitudeLapse;
+      let runningFuelFlow = this.baseFuelFlowKgPerHour + Math.pow(n1Fraction, 2.5) * maxAdditionalFF * altitudeLapse;
+      const thrustFactor = n1ToThrustFactor(this.n1[i], this.idleN1, this.togaN1);
+      let grossThrust = this.maxStaticThrustPerEngine * thrustFactor * altitudeLapse * ramLapse;
+
+      if (this.dryThrustTable) {
+        const dryN = lerpTable(this.dryThrustTable, mach) ?? this.maxStaticThrustPerEngine;
+        const reheatN = this.reheatThrustTable ? (lerpTable(this.reheatThrustTable, mach) ?? dryN) : dryN;
+        const available = this.reheatConfig?.available !== false;
+        const auto = this.reheatConfig
+          && Number.isFinite(this.reheatConfig.autoFromMach)
+          && Number.isFinite(this.reheatConfig.autoToMach)
+          && mach >= this.reheatConfig.autoFromMach
+          && mach <= this.reheatConfig.autoToMach;
+        const reheat = available && (this.reheatActive || auto) ? 1 : 0;
+        const installed = dryN + (reheatN - dryN) * reheat;
+        const refDensityRatio = Math.max(1e-4, isaDensityRatio(this.thrustTableReferenceAltitudeM));
+        const tableAltitudeLapse = Math.min(1.0, Math.pow(Math.max(0, densityRatio) / refDensityRatio, 0.75));
+        grossThrust = installed * Math.pow(Math.max(0, thrustFactor), 0.65) * tableAltitudeLapse;
+        if (this.cruiseTsfcKgPerDaNHour && grossThrust > 0) {
+          const tsfc = this.cruiseTsfcKgPerDaNHour * (reheat ? this.reheatFuelMultiplier : 1.0);
+          runningFuelFlow = grossThrust / 10 * tsfc;
+        }
+      }
+
       const targetFF = out ? 0.0 : runningFuelFlow * integrity;
       this.fuelFlow[i] += (targetFF - this.fuelFlow[i]) * Math.min(1.0, dt * (out ? 2.0 : 12.0));
 
@@ -193,8 +267,6 @@ export class EngineModel {
       // Normalize N1 between idleN1 (zero thrust) and togaN1 (full thrust).
       // Using the aircraft-specific idleN1 as the floor means throttle=0 always
       // yields ~0 net thrust regardless of where idle N1 sits (e.g. F-16 at 60%).
-      const thrustFactor = n1ToThrustFactor(this.n1[i], this.idleN1, this.togaN1);
-      let grossThrust = this.maxStaticThrustPerEngine * thrustFactor * altitudeLapse * ramLapse;
 
       // Reverse thrust effect
       if (this.reverserDeployment > 0.05 && this.reverseThrustEfficiency > 0) {

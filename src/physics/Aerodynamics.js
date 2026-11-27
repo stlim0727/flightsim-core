@@ -11,6 +11,21 @@ export function createAeroResult() {
   return { forceWorld: new THREE.Vector3(), momentBody: new THREE.Vector3() };
 }
 
+function interpolateDragTable(table, mach) {
+  if (!Array.isArray(table) || table.length === 0) return null;
+  if (mach <= table[0][0]) return table[0][1];
+  for (let index = 1; index < table.length; index++) {
+    const [nextMach, nextDrag] = table[index];
+    if (mach <= nextMach) {
+      const [previousMach, previousDrag] = table[index - 1];
+      if (nextMach <= previousMach) return nextDrag;
+      const fraction = (mach - previousMach) / (nextMach - previousMach);
+      return previousDrag + fraction * (nextDrag - previousDrag);
+    }
+  }
+  return table.at(-1)[1];
+}
+
 /**
  * 6-DOF Aerodynamic Physics Simulation Engine
  * Implements full rigid body equations of motion, nonlinear lift & stall hysteresis,
@@ -111,9 +126,9 @@ export class Aerodynamics {
     this.massBaselineKg = this.mass;
 
     this.CL0_clean = aero.cl0Clean || 0.22;
-    this.CLa = aero.claPerRad || 5.65;
+    this.CLa = aero.claPerRad ?? aero.clAlpha ?? 5.65;
     this.alphaStallClean = THREE.MathUtils.degToRad(aero.alphaStallDeg || 15.5);
-    this.CD0 = aero.cd0Clean || 0.0185;
+    this.CD0 = aero.cd0Clean ?? aero.cd0 ?? 0.0185;
     this.stallWarningConfig = config.stallWarning || { marginDeg: 2.0 };
     this.warningReferenceMass = mass.maxTakeoffWeightKg || this.mass;
     this.isStallWarning = false;
@@ -137,6 +152,7 @@ export class Aerodynamics {
     this.gearDrag = aero.gearDrag ?? 0.024;
     this.spoilerDrag = aero.spoilerDrag ?? 0.075;
     this.transonicMachBuffet = aero.transonicMachBuffet ?? 0.78;
+    this.waveDragTable = aero.waveDragTable ?? null;
 
     if (aero.flapAngles && Array.isArray(aero.flapAngles) && aero.flapAngles.length > 0) {
       this.flapAngles = [...aero.flapAngles];
@@ -340,7 +356,9 @@ export class Aerodynamics {
     // Spoiler drag
     cdParasitic += this.spoilerDrag * this.spoilers;
     // Wave drag / high mach compressibility drag
-    if (this.mach > this.transonicMachBuffet) {
+    if (this.waveDragTable) {
+      cdParasitic += interpolateDragTable(this.waveDragTable, this.mach) ?? 0;
+    } else if (this.mach > this.transonicMachBuffet) {
       cdParasitic += Math.pow(this.mach - this.transonicMachBuffet, 3.5) * 8.0;
     }
     if (dmg) cdParasitic += dmg.parasiticDragDelta;
