@@ -950,6 +950,7 @@ export const CONCORDE = {
   id: 'CONCORDE',
   name: 'Aérospatiale/BAC Concorde',
   description: 'Supersonic passenger airliner featuring ogival delta wing and four Rolls-Royce/Snecma Olympus 593 turbojets with reheat',
+  flightControls: { gLimiter: false },
   massProperties: {
     emptyWeightKg: 78700,
     maxTakeoffWeightKg: 185070,
@@ -982,10 +983,20 @@ export const CONCORDE = {
     alphaStallDeg: 20.6,
     clFlapBoostMax: 0.0,
     spoilerLiftDump: 0.25,
-    cd0Clean: 0.0175,
+    cd0Clean: 0.012,
     gearDrag: 0.024,
     spoilerDrag: 0.075,
     transonicMachBuffet: 1.15,
+    waveDragTable: [
+      [0.0, 0.0],
+      [0.80, 0.0],
+      [0.95, 0.002],
+      [1.05, 0.004],
+      [1.20, 0.005],
+      [1.70, 0.004],
+      [2.20, 0.004],
+      [3.00, 0.004]
+    ],
     cm0: -0.02,
     cma: -0.90,
     cmDe: -1.63,
@@ -1011,7 +1022,33 @@ export const CONCORDE = {
     reverseThrustEfficiency: 0.25,
     baseFuelFlowKgPerHour: 795.0,
     maxFuelFlowKgPerHour: 5680.0,
-    fuelCapacityKg: 95680
+    fuelCapacityKg: 95680,
+    cruiseTsfcKgPerDanHour: 1.2,
+    machThrustLapse: [
+      [0, 1],
+      [0.8, 1],
+      [1.5, 1],
+      [2.2, 1],
+      [3, 1]
+    ],
+    dryThrustTable: [
+      [0, 120000],
+      [0.8, 95000],
+      [0.93, 90000],
+      [1.2, 80000],
+      [1.7, 65000],
+      [2.0, 45000],
+      [2.2, 40000]
+    ],
+    reheatThrustTable: [
+      [0, 169300],
+      [0.8, 150000],
+      [0.93, 140000],
+      [1.2, 130000],
+      [1.7, 125000],
+      [2.0, 120000],
+      [2.2, 110000]
+    ],
   },
   landingGear: {
     isFixed: false,
